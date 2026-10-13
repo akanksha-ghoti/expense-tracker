@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Expense Tracker - Live Demo</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-dark bg-primary mb-3">
+  <div class="container">
+    <span class="navbar-brand">💰 Smart Expense Tracker <small class="opacity-75">(Demo)</small></span>
+    <a class="btn btn-sm btn-light" href="https://github.com/akanksha-ghoti/expense-tracker">View source on GitHub</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="alert alert-info">
+    This is the <b>front-end demo</b> of my Flask project. Data is saved only in <b>your browser</b> (localStorage),
+    so it stays private and is never sent anywhere. The full version with login and an SQLite database is in the GitHub repository.
+  </div>
+  <div id="budgetAlert" class="alert alert-warning d-none"></div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-4"><div class="card shadow-sm"><div class="card-body">
+      <div class="text-muted">Spent in <span id="monthLabel"></span></div><h3 id="spent">0.00</h3>
+    </div></div></div>
+    <div class="col-md-4"><div class="card shadow-sm"><div class="card-body">
+      <div class="d-flex gap-2">
+        <input id="budget" class="form-control" type="number" min="0" step="1" aria-label="Monthly budget">
+        <button id="saveBudget" class="btn btn-outline-primary">Set budget</button>
+      </div>
+      <small class="text-muted">Monthly budget</small>
+    </div></div></div>
+    <div class="col-md-4"><div class="card shadow-sm"><div class="card-body">
+      <div class="d-flex gap-2">
+        <input id="month" class="form-control" type="month" aria-label="Month">
+        <button id="exportCsv" class="btn btn-outline-secondary">CSV</button>
+      </div>
+      <small class="text-muted">Choose month / download all as CSV</small>
+    </div></div></div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-8">
+      <div class="card shadow-sm mb-3"><div class="card-body">
+        <h5 id="formTitle">Add expense</h5>
+        <div id="formError" class="text-danger small mb-2"></div>
+        <div class="row g-2">
+          <div class="col-md-4"><input id="title" class="form-control" placeholder="Title, e.g. Lunch at canteen"></div>
+          <div class="col-md-2"><input id="amount" class="form-control" type="number" min="0.01" step="0.01" placeholder="Amount"></div>
+          <div class="col-md-3"><select id="category" class="form-select"></select></div>
+          <div class="col-md-3"><input id="date" class="form-control" type="date"></div>
+        </div>
+        <div class="mt-2">
+          <button id="save" class="btn btn-primary">Save</button>
+          <button id="cancel" class="btn btn-outline-secondary d-none">Cancel edit</button>
+          <small class="text-muted ms-2">Category is auto-suggested from the title.</small>
+        </div>
+      </div></div>
+
+      <div class="table-responsive">
+      <table class="table table-striped bg-white shadow-sm">
+        <thead><tr><th>Date</th><th>Title</th><th>Category</th><th class="text-end">Amount</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <h5>By category</h5>
+      <div class="card shadow-sm"><div class="card-body"><canvas id="chart"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+const CATEGORIES = ["Food","Travel","Shopping","Bills","Education","Health","Entertainment","Other"];
+const KEYWORDS = {
+  Food: ["lunch","dinner","breakfast","pizza","coffee","tea","snack","canteen","grocery","restaurant"],
+  Travel: ["bus","train","metro","uber","ola","auto","petrol","fuel","ticket","cab"],
+  Shopping: ["shirt","shoes","amazon","flipkart","clothes","bag","mall"],
+  Bills: ["recharge","electricity","wifi","internet","rent","phone","water bill"],
+  Education: ["book","course","udemy","fees","exam","notes","stationery","pen"],
+  Health: ["medicine","doctor","hospital","pharmacy","gym"],
+  Entertainment: ["movie","netflix","game","spotify","concert"]
+};
+
+// Same idea as suggest_category() in the Flask app
+function suggestCategory(title) {
+  const text = title.toLowerCase();
+  for (const [cat, words] of Object.entries(KEYWORDS)) {
+    if (words.some(w => text.includes(w))) return cat;
+  }
+  return "Other";
+}
+
+// ---- storage (browser only) ----
+function load(key, fallback) {
+  try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; }
+  catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+let expenses = load("expenses", []);
+let budget = load("budget", 0);
+let editingId = null;
+let chart = null;
+
+const $ = id => document.getElementById(id);
+const today = new Date().toISOString().slice(0, 10);
+$("date").value = today;
+$("month").value = today.slice(0, 7);
+$("budget").value = budget || "";
+$("category").innerHTML = CATEGORIES.map(c => `<option>${c}</option>`).join("");
+
+// auto-suggest category while typing
+$("title").addEventListener("input", () => { $("category").value = suggestCategory($("title").value); });
+
+function showError(msg) { $("formError").textContent = msg; }
+
+function saveExpense() {
+  const title = $("title").value.trim();
+  const amount = parseFloat($("amount").value);
+  const date = $("date").value;
+  let category = $("category").value;
+  if (!title) return showError("Title is required.");
+  if (!(amount > 0)) return showError("Amount must be greater than zero.");
+  if (!date) return showError("Please choose a date.");
+  if (!CATEGORIES.includes(category)) category = suggestCategory(title);
+  showError("");
+  if (editingId !== null) {
+    expenses = expenses.map(e => e.id === editingId ? { ...e, title, amount, category, date } : e);
+  } else {
+    const id = expenses.reduce((m, e) => Math.max(m, e.id), 0) + 1;
+    expenses.push({ id, title, amount, category, date });
+  }
+  save("expenses", expenses);
+  resetForm();
+  render();
+}
+
+function resetForm() {
+  editingId = null;
+  $("title").value = ""; $("amount").value = ""; $("date").value = today;
+  $("category").value = "Food";
+  $("formTitle").textContent = "Add expense";
+  $("cancel").classList.add("d-none");
+}
+
+function editExpense(id) {
+  const e = expenses.find(x => x.id === id);
+  if (!e) return;
+  editingId = id;
+  $("title").value = e.title; $("amount").value = e.amount;
+  $("category").value = e.category; $("date").value = e.date;
+  $("formTitle").textContent = "Edit expense";
+  $("cancel").classList.remove("d-none");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function deleteExpense(id) {
+  if (!confirm("Delete this expense?")) return;
+  expenses = expenses.filter(e => e.id !== id);
+  save("expenses", expenses);
+  render();
+}
+
+function render() {
+  const month = $("month").value;
+  $("monthLabel").textContent = month;
+  const list = expenses.filter(e => e.date.slice(0, 7) === month)
+                       .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  const spent = list.reduce((s, e) => s + e.amount, 0);
+  $("spent").textContent = spent.toFixed(2);
+
+  const alertBox = $("budgetAlert");
+  if (budget > 0 && spent > budget) {
+    alertBox.textContent = `⚠️ You have spent ${spent.toFixed(2)}, which is over your budget of ${budget.toFixed(2)}.`;
+    alertBox.classList.remove("d-none");
+  } else alertBox.classList.add("d-none");
+
+  const tbody = $("rows");
+  tbody.innerHTML = "";
+  if (!list.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5; td.className = "text-center text-muted"; td.textContent = "No expenses this month yet.";
+    tr.appendChild(td); tbody.appendChild(tr);
+  }
+  for (const e of list) {
+    const tr = document.createElement("tr");
+    // textContent (not innerHTML) so typed text can never run as code
+    [e.date, e.title, e.category].forEach(v => { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); });
+    const amt = document.createElement("td"); amt.className = "text-end"; amt.textContent = e.amount.toFixed(2); tr.appendChild(amt);
+    const act = document.createElement("td"); act.className = "text-end";
+    const b1 = document.createElement("button"); b1.className = "btn btn-sm btn-outline-secondary me-1"; b1.textContent = "Edit";
+    b1.addEventListener("click", () => editExpense(e.id));
+    const b2 = document.createElement("button"); b2.className = "btn btn-sm btn-outline-danger"; b2.textContent = "Delete";
+    b2.addEventListener("click", () => deleteExpense(e.id));
+    act.append(b1, b2); tr.appendChild(act); tbody.appendChild(tr);
+  }
+
+  // chart
+  const totals = {};
+  list.forEach(e => totals[e.category] = (totals[e.category] || 0) + e.amount);
+  if (chart) chart.destroy();
+  chart = new Chart($("chart"), {
+    type: "doughnut",
+    data: { labels: Object.keys(totals), datasets: [{ data: Object.values(totals).map(v => +v.toFixed(2)) }] }
+  });
+}
+
+function exportCsv() {
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const rows = [["Date","Title","Category","Amount"], ...expenses.map(e => [e.date, e.title, e.category, e.amount])];
+  const blob = new Blob([rows.map(r => r.map(q).join(",")).join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "expenses.csv"; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+$("save").addEventListener("click", saveExpense);
+$("cancel").addEventListener("click", resetForm);
+$("saveBudget").addEventListener("click", () => { budget = Math.max(0, parseFloat($("budget").value) || 0); save("budget", budget); render(); });
+$("month").addEventListener("change", render);
+$("exportCsv").addEventListener("click", exportCsv);
+render();
+</script>
+</body>
+</html>
