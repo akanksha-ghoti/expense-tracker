@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-md-6">
+  <div class="card shadow-sm"><div class="card-body">
+    <h4 class="mb-3">{{ 'Edit' if expense else 'Add' }} expense</h4>
+    <form method="post">
+      <label class="form-label">Title</label>
+      <input id="title" class="form-control mb-3" name="title" value="{{ expense['title'] if expense else '' }}" placeholder="e.g. Lunch at canteen" required>
+      <label class="form-label">Amount (₹)</label>
+      <input class="form-control mb-3" type="number" step="0.01" min="0.01" name="amount" value="{{ expense['amount'] if expense else '' }}" required>
+      <label class="form-label">Category <small class="text-muted">(auto-suggested from title)</small></label>
+      <select id="category" class="form-select mb-3" name="category">
+        {% for c in categories %}
+        <option {{ 'selected' if expense and expense['category'] == c else '' }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+      <label class="form-label">Date</label>
+      <input class="form-control mb-3" type="date" name="spent_on" value="{{ expense['spent_on'] if expense else today }}" required>
+      <button class="btn btn-primary">Save</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Cancel</a>
+    </form>
+  </div></div>
+</div></div>
+<script>
+  // Suggest a category while the user types the title
+  const title = document.getElementById('title');
+  const category = document.getElementById('category');
+  title.addEventListener('input', async () => {
+    const r = await fetch('/api/suggest?title=' + encodeURIComponent(title.value));
+    const data = await r.json();
+    category.value = data.category;
+  });
+</script>
+{% endblock %}

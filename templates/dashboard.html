@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+{% if over_budget %}
+<div class="alert alert-warning">⚠️ You have spent ₹{{ '%.2f' % spent }} which is over your budget of ₹{{ '%.2f' % budget }}.</div>
+{% endif %}
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body">
+    <div class="text-muted">Spent in {{ month }}</div><h3>₹{{ '%.2f' % spent }}</h3>
+  </div></div></div>
+  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body">
+    <form method="post" action="{{ url_for('set_budget') }}" class="d-flex gap-2">
+      <input class="form-control" type="number" min="0" step="1" name="budget" value="{{ budget|int }}" aria-label="Monthly budget">
+      <button class="btn btn-outline-primary">Set budget</button>
+    </form>
+    <small class="text-muted">Monthly budget (₹)</small>
+  </div></div></div>
+  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body">
+    <form method="get" class="d-flex gap-2">
+      <input class="form-control" type="month" name="month" value="{{ month }}">
+      <button class="btn btn-outline-secondary">View</button>
+    </form>
+    <a href="{{ url_for('export_csv') }}" class="btn btn-sm btn-link px-0 mt-1">Download all as CSV</a>
+  </div></div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="d-flex justify-content-between mb-2">
+      <h5>Expenses</h5><a class="btn btn-primary btn-sm" href="{{ url_for('add_expense') }}">+ Add expense</a>
+    </div>
+    <table class="table table-striped bg-white shadow-sm">
+      <thead><tr><th>Date</th><th>Title</th><th>Category</th><th class="text-end">Amount</th><th></th></tr></thead>
+      <tbody>
+      {% for e in expenses %}
+        <tr>
+          <td>{{ e['spent_on'] }}</td><td>{{ e['title'] }}</td><td>{{ e['category'] }}</td>
+          <td class="text-end">₹{{ '%.2f' % e['amount'] }}</td>
+          <td class="text-end">
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_expense', expense_id=e['id']) }}">Edit</a>
+            <form method="post" action="{{ url_for('delete_expense', expense_id=e['id']) }}" class="d-inline" onsubmit="return confirm('Delete this expense?')">
+              <button class="btn btn-sm btn-outline-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-muted">No expenses this month yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="col-lg-4">
+    <h5>By category</h5>
+    <div class="card shadow-sm"><div class="card-body"><canvas id="chart"></canvas></div></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+  const labels = {{ labels|tojson }};
+  const values = {{ values|tojson }};
+  if (labels.length) {
+    new Chart(document.getElementById('chart'), {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data: values }] }
+    });
+  }
+</script>
+{% endblock %}
